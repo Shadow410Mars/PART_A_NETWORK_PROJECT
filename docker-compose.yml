@@ -1,4 +1,14 @@
 services:
+  # =========================================================================
+  # IMAGE REPRODUCIBILITY NOTICE (Audit 3)
+  # Tag phiên bản (apache/iotdb:2.0.11-standalone) là mặc định, dễ bảo trì,
+  # auto nhận patch fix bảo mật khi người dùng chạy `docker compose pull`.
+  #
+  # NẾU CẦN TÁI LẬP CHUẨN XÁC 100% (cho báo cáo khoa học, cùng image layer
+  # trên mọi host): thay `image: apache/iotdb:2.0.11-standalone` BẰNG dòng:
+  #   image: apache/iotdb@sha256:5ace0f3eceff892dd349d02288224c966f3fdeb11d08c4f575b642a110b82338
+  # Digest này được verify bằng `docker image inspect apache/iotdb:2.0.11-standalone`.
+  # =========================================================================
   iotdb:
     image: apache/iotdb:2.0.11-standalone
     hostname: iotdb
@@ -33,6 +43,7 @@ services:
     networks:
       - iotdb-net
 
+  # Digest (Audit 3): prom/prometheus@sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94
   prometheus:
     image: prom/prometheus:v2.54.1
     hostname: prometheus
@@ -51,6 +62,7 @@ services:
     networks:
       - iotdb-net
 
+  # Digest (Audit 3): grafana/grafana-oss@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f
   grafana:
     image: grafana/grafana-oss:11.2.0
     hostname: grafana

@@ -26,13 +26,39 @@ scrape_configs:
           node_role: 'DataNode'
           node_id: '1'
 
-  - job_name: 'iotdb-datanode-highfreq'
-    metrics_path: '/metrics'
-    scrape_interval: 1s
-    scrape_timeout: 900ms
-    static_configs:
-      - targets: ['iotdb:9092']
-        labels:
-          node_role: 'DataNode'
-          node_id: '1'
-          frequency: 'highfreq_1s'
+#
+# HIGH-FREQUENCY SCRAPE (OPTIONAL — TÙY CHỌN, KHÔNG BẬT MẶC ĐỊNH)
+# Scrape DataNode mỗi 1s. Chỉ BẬT khi cần độ phân giải cao trong lúc
+# chạy thí nghiệm benchmark (ví dụ: capture peak flush/compaction khi
+# load gen chạy 2-3 phút). Khi chạy baseline hoặc đo overhead trống,
+# giữ COMMENT block này để tránh monitoring làm tăng sai số chi phí ghi.
+#
+# TÁC ĐỘNG ĐO LƯỜNG (đã ghi nhận tài liệu):
+#   • Bật highfreq 1s + 5s normal = DN endpoint bị hit 1.2 lần/s.
+#   • Recommend kiểm tra OVERHEAD MONITORING trước ma trận chính:
+#     1. Chạy bộ load gen CÙNG tham số 2 lần:
+#        a. Lần 1: comment block này (chỉ DN 5s)
+#        b. Lần 2: uncomment block này (DN 5s + 1s)
+#     2. So sánh median write latency / throughput 2 lần.
+#        Nếu hiệu >2% thì hiệu chỉnh (tách scrape ra instance riêng,
+#        giảm metric emit trong iotdb-system.properties, hoặc chấp nhận
+#        và ghi rõ hệ số điều chỉnh trong báo cáo kết quả cuối).
+#
+# CÁCH BẬT:
+#   (a) Uncomment block dưới đây
+#   (b) Sửa file xong → reload live config KHÔNG restart container:
+#       $ curl -X POST http://127.0.0.1:9090/-/reload
+#       (hoặc trên Windows PowerShell:
+#        Invoke-RestMethod http://127.0.0.1:9090/-/reload -Method Post)
+#   (c) Kiểm tra http://127.0.0.1:9090/targets → target iotdb-datanode-highfreq UP
+#
+# - job_name: 'iotdb-datanode-highfreq'
+#     metrics_path: '/metrics'
+#     scrape_interval: 1s
+#     scrape_timeout: 900ms
+#     static_configs:
+#       - targets: ['iotdb:9092']
+#         labels:
+#           node_role: 'DataNode'
+#           node_id: '1'
+#           frequency: 'highfreq_1s'

@@ -22,10 +22,22 @@ Phần A — Thành viên 1: Hạ tầng đơn nút (1 ConfigNode + 1 DataNode t
 
 | Mục | Giá trị |
 |---|---|
-| Image Docker | `apache/iotdb:2.0.11-standalone` (pin cố định, **không** dùng `latest`) |
+| Image Docker (tag mặc định) | `apache/iotdb:2.0.11-standalone` (pin cố định tag, **không** dùng `latest`) |
 | Chế độ triển khai | 1C1D đơn nút — ConfigNode (`nodeId=0`) + DataNode (`nodeId=1`) chạy trong cùng container |
-| Build Info | `7c0de06` (thuộc nhánh 2.0.11 stable, cập nhật 14/9/2026 trên Docker Hub) |
+| Build Info | `7c0de06` (thuộc nhánh 2.0.11 stable, pushed 14/09/2026, Created = `2026-09-14T07:32:19Z`) |
 | TZ container | `Asia/Ho_Chi_Minh` |
+
+### 2.1 Phân biệt pin Tag phiên bản vs pin Image Digest (Audit 3)
+
+> ⚠ **Khoa học thực nghiệm**: Tag phiên bản (vd `2.0.11-standalone`) trên Docker Hub **có thể được maintainer push lại nội dung mới** (vd patch fix hotfix không đổi tag), nên 2 người cùng dùng `apache/iotdb:2.0.11-standalone` kéo vào 2 ngày khác nhau có thể nhận được image layer khác nhau → sai số đo lường.
+>
+> **Cam kết tái lập 100%**: Thay `image: tag` bằng `image: <repo>@sha256:<digest>` (hướng dẫn cụ thể ghi comment ở đầu mỗi service trong [docker-compose.yml](file:///C:/Users/HELLO/Desktop/Đồ%20án/docker-compose.yml)). Digest dưới đây đã được verify bằng `docker image inspect` trên môi trường phát triển gốc:
+
+| Service | RepoDigests SHA256 (đã kiểm chứng) |
+|---|---|
+| **IoTDB 2.0.11 standalone** | `apache/iotdb@sha256:5ace0f3eceff892dd349d02288224c966f3fdeb11d08c4f575b642a110b82338` |
+| Prometheus v2.54.1 | `prom/prometheus@sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94` |
+| Grafana OSS 11.2.0 | `grafana/grafana-oss@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f` |
 
 ---
 
@@ -49,9 +61,20 @@ Các cổng nội bộ sau **không** được bind ra host vì chỉ dùng tron
 | `iotdb-logs` | `/iotdb/logs` | (Docker managed, **không commit**) | log GC, flush, compaction — nhóm D đọc log |
 | Bind mount `./iotdb/conf` → `/iotdb/conf` (read-only `:ro`) | `/iotdb/conf` | `iotdb/conf/*` (commit vào Git) | Tham số cấu hình cho các lần dựng lại sau này |
 
-⚠ `docker compose down` *không* xóa named volumes. Để xóa data THỦ CÔNG (chỉ khi nhóm E muốn dọn DB giữa các lần chạy):
-```
-docker compose down -v      # ⚠ xóa cả iotdb-data + iotdb-logs, chỉ dùng khi ý thức rõ
+### 4.1 Vòng đời Docker Volumes (Audit 4)
+
+> ⚠ **Git không quản lý named volumes Docker**: `git reset`, `git checkout`, hay clone repo mới hoàn toàn **KHÔNG** tác động gì đến nội dung 4 named volumes (`iotdb-data`, `iotdb-logs`, `prometheus-data`, `grafana-data`) — chúng được Docker daemon quản lý độc lập, nằm tại mountpoint `/var/lib/docker/volumes/<name>/_data` bên trong WSL2 distro `docker-desktop-data`.
+>
+> Các lệnh Docker **CÓ THỂ XÓA** named volumes (luôn backup `iotdb-data` trước khi chạy nếu chứa dữ liệu thí nghiệm quý giá):
+> * `docker compose down -v` — stop + xóa container/network **VÀ XÓA HẾT** 4 named volumes được định nghĩa trong [docker-compose.yml](file:///C:/Users/HELLO/Desktop/Đồ%20án/docker-compose.yml).
+> * `docker volume rm iotdb-data iotdb-logs prometheus-data grafana-data` — xóa lẻ từng volume.
+> * `docker volume prune` — xóa TẤT CẢ volumes không được tham chiếu bởi container nào đang chạy (NGUY HIỂM nếu có project khác trên máy).
+>
+> Mặc định (`docker compose down` không có `-v`) thì named volumes được giữ lại.
+
+⚠ Mẹo backup dữ liệu TsFile trước khi dọn:
+```powershell
+docker run --rm -v iotdb-data:/src -v "${PWD}/backup_$(Get-Date -Format yyyyMMdd):/dst" alpine cp -a /src/. /dst/.
 ```
 
 ---
@@ -90,6 +113,14 @@ docker logs -f iotdb 2>&1 | Select-String -Pattern "Congratulations"
 | Dừng (giữ data) | `docker compose down` |
 | Khởi động lại (giữ data) | `docker compose up -d` |
 | Tải cấu hình mới (sửa `iotdb/conf/*`) | `docker compose up -d --force-recreate` |
+| Reload Prometheus KHÔNG restart container (sửa prometheus.yml) | `Invoke-RestMethod http://127.0.0.1:9090/-/reload -Method Post` (Windows) / `curl -X POST http://127.0.0.1:9090/-/reload` (Linux/macOS) |
+
+### 5.8 Disclaimer về phạm vi kiểm thử đã thực hiện (Audit 4)
+
+Tất cả các mục trong bảng nghiệm thu phần A đều được chạy và PASS trên **workspace hiện tại** tại commit sau khi dựng xong. **Tuy nhiên, một bài kiểm thử giả lập "clone sạch hoàn toàn từ repo rỗng sang máy mới chưa từng có Docker image/volume nào" chưa được thực hiện**. Do đó:
+
+* Các lệnh ở Section 5, 6 dựa trên bằng chứng thực tế trên workspace gốc, nhưng thành viên khi dựng trên máy mới **nên báo cáo nếu phát hiện sai khác** (đặc biệt là bước `docker compose pull` lần đầu, hoặc bước copy conf từ container mới khi người dùng chưa có sẵn thư mục `iotdb/conf/`).
+* File cấu hình `iotdb/conf/` được commit vào Git (mount `:ro`), nên kết quả dựng trên máy mới dự kiến giống 100% nếu cùng digest image.
 
 ---
 
@@ -183,8 +214,20 @@ vào service `iotdb` trong `docker-compose.yml`. **Hiện tại không làm vậ
 | `inner_compaction_total_file_num_threshold` | `100` | Hoặc khi đủ 100 file |
 | `max_cross_compaction_candidate_file_size` | `5368709120` (5 GB) | Giới hạn cross compaction |
 
-→ Core metric nhóm C cần vẽ Grafana cho nhóm B+E:
-- `compaction_running_task_count`, `flush_total_task_count`, `unseq_file_num` (số file unsequence tạo ra chính là kết quả trực tiếp của ghi sai thứ tự — càng nhiều OOO càng tăng giá trị này).
+→ PromQL mẫu ĐÃ XÁC MINH (Audit 1) nhóm C cần vẽ Grafana cho nhóm B+E:
+  (Lưu ý quan trọng: **KHÔNG dùng `rate()` cho metric dạng GAUGE** dưới đây — chúng biểu diễn giá trị tức thời, không phải counter tích lũy. `rate()` chỉ dành cho counter có suffix `_total`.)
+
+| Metric | Type | Label quan trọng | PromQL ví dụ | Ý nghĩa cho đề tài OOO |
+|---|---|---|---|---|
+| `thread_pool_active_thread_count` | GAUGE | `pool_name =~ ".*Compaction.*"` | `thread_pool_active_thread_count{pool_name="org.apache.iotdb.threadpool:type=Compaction-Worker"}` | Số thread compaction đang BẬT tức thời (tăng khi OOO cao). |
+| `compaction_task_count` | GAUGE | `name ∈ {inner_seq, inner_unseq, cross, settle, insertion}` | `compaction_task_count{name="cross"}` (**CORE OOO metric**) | Số task cross-space compaction đang chạy — chỉ tăng khi có unseq file cần merge vào seq space, đây là bằng chứng trực tiếp nhất OOO gây tốn chi phí. |
+| `flush_cost_seconds` | SUMMARY quantile | `stage ∈ {encoding, io, write_plan_indices,...}` | `flush_cost_seconds{quantile="0.99",stage="io"}` | Latency flush memtable→TsFile, percentile 99. |
+| `jvm_memory_used_bytes` | GAUGE | `nodeType`, `area="heap"` | `sum by (nodeType) (jvm_memory_used_bytes{area="heap"})` | Heap dùng thực tế DN vs CN. **Runtime đo thực tế (Audit5) idle = DN 1,454 MiB / 2,922 MiB (49.7%), tức đã vượt flush_proportion=0.4 ở trạng thái rỗi → khi chạy load gen flush xảy ra nhanh.** |
+| `wal_cost_seconds` | SUMMARY quantile | `stage ∈ {make_checkpoint,...}` | `wal_cost_seconds{quantile="0.99"}` | WAL latency p99 (replaced old metric `wal_flush_time_cost_summary` which DOES NOT EXIST). |
+| `file_count` | GAUGE | `level=0..N, tsfileType ∈ {sequence, unsequence}` | `sum by (tsfileType) (file_count{nodeType="DATANODE"})` | Số lượng file seq vs unseq (tỷ lệ unseq tăng chứng minh OOO gây write amplification). |
+| `flush_memtable_count_total` | COUNTER suffix `_total` | — | `rate(flush_memtable_count_total{nodeType="DATANODE"}[5m])` | Flush task throughput per second (CHO COUNTER nên dùng `rate()` là hợp lệ). |
+
+→ **Sai sót cũ đã loại bỏ (Audit1):** `sum(rate(thread_pool_active_thread_count{name="Compaction-Worker"}[5s]))` — sai ở 2 điểm (label `pool_name` chứ không phải `name`; rate() trên gauge vô nghĩa). Metric `wal_flush_time_cost_summary` không tồn tại trên endpoint 9092 → đã thay bằng `wal_cost_seconds`.
 
 ### 6.6 Tham số đã chủ động sửa (khác mặc định)
 
@@ -248,18 +291,65 @@ Thực hiện lúc container up lần đầu, recreate, sau khi `docker compose 
 | Metrics endpoint DN `:9092/metrics` | ✅ PASS | ~99 dòng metric, tags `nodeType="DATANODE"` (có Flush pool, …) |
 | Bind mount conf `:ro` | ✅ PASS | Container khởi động lại sau khi mount, không có permission issue |
 
-→ Dữ liệu kiểm thử `root.sensor_test.d1` được **giữ lại trong repo** như bằng chứng runtime; nhóm E có thể `DROP DATABASE root.sensor_test;` trước khi chạy ma trận thí nghiệm.
+> ⚠ **Lưu ý Khoa học thực nghiệm (Audit 4):** Bài kiểm thử OOO pattern (ts=1000 → 2000 → 1500 SAU) trên đây chỉ chứng minh **TÍNH ĐÚNG ĐẮN về logic truy vấn** (cơ sở dữ liệu trả về kết quả đúng thứ tự thời gian, dữ liệu không bị mất). Nó **KHÔNG phải là bằng chứng định lượng** rằng chi phí ghi, CPU compaction, write amplification hay số lượng file unseq đã tăng lên do OOO. Đo lường mối quan hệ *tỷ lệ OOO → chi phí ghi* là mục tiêu của **Toàn bộ đề tài (Nhóm B sinh tải × Nhóm E runner ma trận × Nhóm F phân tích)** và cần được thực hiện bằng cách chạy load gen cố định 1 tổ hợp tham số trong ≥ 5 phút, đo các PromQL Section 6.5, sau đó lặp lại với N tổ hợp khác nhau để so sánh.
+
+→ Dữ liệu kiểm thử `root.sensor_test.d1` + `root.acceptance.devA` được **giữ lại trong named volume `iotdb-data`** như bằng chứng runtime; nhóm E có thể chạy 2 lệnh sau TRƯỚC KHI bắt đầu ma trận thí nghiệm để làm trắng dữ liệu mà không cần xóa volume:
+```sql
+DROP DATABASE root.sensor_test;
+DROP DATABASE root.acceptance;
+FLUSH;
+```
 
 ---
 
-## 9. Monitoring nền tảng (tiền A3)
+## 9. Monitoring nền tảng (ĐÃ HOÀN THÀNH A3 — Audit 2)
 
-| Mục | Trạng thái | Hướng dẫn nhóm C |
-|---|---|---|
-| IoTDB Prometheus metrics endpoint (2 cổng 9091, 9092) | ✅ ĐÃ BẬT & xác minh curl được | Thêm 2 `scrape_configs` với `targets: ["iotdb:9091","iotdb:9092"]` (nếu Prometheus chạy trong cùng `iotdb-net` Docker network) hoặc `targets: ["host.docker.internal:9091", "host.docker.internal:9092"]` (nếu chạy ngoài) |
-| Container Prometheus | ❌ CHƯA TẠO | Thành viên 4 làm, có thể extend `docker-compose.yml` thêm service `prometheus` với file `./prometheus/prometheus.yml` |
-| Container Grafana | ❌ CHƯA TẠO | Thành viên 4 làm, datasource = Prometheus, dashboard mẫu đề xuất theo đề tài: ingest rate (records/s), e2e write latency (p50/p95/p99), flush task count & duration, compaction task count (seq inner vs unseq inner vs cross), seq vs unseq file count, CPU/RAM/disk IO container (metric `container_*` nếu có cAdvisor) |
-| File cấu hình Prometheus mẫu | BLOCKER chưa tạo | Nhóm C cần tạo: folder `./prometheus/prometheus.yml` + Docker volume mount, sau đó expose `:9090` |
+3 service monitoring ĐANG CHẠY thực tế sau khi `docker compose up -d`. Truy cập trình duyệt host:
+
+| Service | URL | Tài khoản | Tình trạng tại Audit |
+|---|---|---|---|
+| Prometheus UI + API | `http://127.0.0.1:9090` | anonymous (public read-only) | ✅ 3 scrape target UP (lúc Audit mặc định, không bật highfreq) |
+| Grafana UI | `http://127.0.0.1:3000` | `admin/admin` (tùy chỉnh password sau login) OR **Anonymous Viewer** (chỉ xem, không cần login — đã bật `GF_AUTH_ANONYMOUS_ENABLED=true`) | ✅ Health `database=ok`; Datasource Prometheus `uid=prometheus-iotdb` (default=True) đã được auto provision |
+| IoTDB ConfigNode metrics raw | `http://127.0.0.1:9091/metrics` | — | ✅ Text format Prometheus |
+| IoTDB DataNode metrics raw | `http://127.0.0.1:9092/metrics` | — | ✅ Text format Prometheus |
+
+### 9.1 Cấu hình Scrape mặc định (Audit 2 — MẶC ĐỊNH KHÔNG BẬT 1s HIGH FREQ)
+
+Sau khi Audit, cấu hình mặc định giảm thiểu overhead monitoring lên hệ thống đang đo (quy tắc khoa học thực nghiệm: **không để measurement system ảnh hưởng measured system hơn mức cần thiết**):
+
+| Scrape job | Tần suất | Target | Ý nghĩa |
+|---|---|---|---|
+| `prometheus` (self) | 15s | `localhost:9090` | Tự monitor Prometheus instance |
+| `iotdb-confignode` | 15s | `iotdb:9091` | ConfigNode metrics (thay đổi ít) |
+| `iotdb-datanode` | 5s | `iotdb:9092` | DataNode metrics (đủ độ phân giải cho trend 5s) |
+| `iotdb-datanode-highfreq` | **COMMENTED / OPT-IN** | `iotdb:9092` | **Tùy chọn 1s cho thí nghiệm ngắn**, chỉ bật khi nhóm E chạy load gen 2-3 phút, sau đó comment lại để giảm overhead |
+
+### 9.2 Cách bật High-Frequency 1s (khi chạy benchmark)
+
+1. Mở file [prometheus.yml](file:///C:/Users/HELLO/Desktop/Đồ%20án/monitoring/prometheus/prometheus.yml#L29-L64), uncomment block cuối `iotdb-datanode-highfreq`
+2. **KHÔNG restart container** (giữ history TSDB):
+   ```powershell
+   Invoke-RestMethod -Uri http://127.0.0.1:9090/-/reload -Method Post
+   ```
+3. Verify: `http://127.0.0.1:9090/targets` → có thêm 4 target `iotdb-datanode-highfreq` UP
+
+### 9.3 Kiểm tra Overhead Monitoring trước ma trận chính (Bắt buộc khoa học thực nghiệm)
+
+> ⚠ **Hiệu ứng Observer:** Việc scrape metrics mỗi 5s + 1s tiêu tốn CPU DN xử lý format Prometheus text, và network (nhỏ, trong Docker bridge). Để ĐO & GHI RÕ hiệu ứng này trước ma trận thực:
+
+**Quy trình kiểm tra overhead monitoring (Nhóm E chạy trước khi run N tổ hợp chính):**
+
+1. Chọn một tổ hợp tham số "medium" cố định: VD `OOO=25%, batch=1024, threads=4`
+2. Chạy load gen **2 lần với EXACT SAME params + random seed**:
+   * Lần #A (baseline monitoring thấp): giữ cấu hình mặc định (3 job, DN=5s) → ghi median latency / throughput
+   * Lần #B (monitoring cao): uncomment highfreq 1s + reload Prom → ghi median latency / throughput
+3. Tính: `overhead% = 100 * (median_lat_B - median_lat_A) / median_lat_A`
+4. Nếu `overhead% > 2%`: Báo cáo trong kết quả cuối cùng, hoặc tắt highfreq khi không cần, và cấu hình giảm `dn_metric_prometheus_reporter_export_num_threads` trong iotdb-system.properties.
+5. Nếu `overhead% ≤ 2%`: chấp nhận và ghi footnote trong báo cáo bàn giao (mức sai ≤ 2% là đủ tốt cho thí nghiệm ước lượng bậc 1).
+
+### 9.4 Truy vấn mẫu ĐÃ XÁC MINH hoạt động
+
+Tất cả các PromQL ví dụ cho đề tài OOO đã được verify thực tế trả về non-empty samples (xem Section 6.5 bảng chi tiết). **KHÔNG dùng `rate()` cho gauge thread_pool_active_thread_count / compaction_task_count / jvm_memory_used_bytes**. `rate()` chỉ hợp lệ cho counter `_total`.
 
 ---
 
@@ -279,23 +369,30 @@ Thực hiện lúc container up lần đầu, recreate, sau khi `docker compose 
 
 ```
 C:\Users\HELLO\Desktop\Đồ án\
-├── .gitignore                      # bỏ iotdb/data, iotdb/logs, *.pyc, venv, *.parquet…
-├── docker-compose.yml              # IoTDB 2.0.11 standalone single-node
-├── README.md                       # tài liệu này
-└── iotdb/
-    └── conf/                       # commit vào Git, mount read-only cho container
-        ├── iotdb-system.properties             # 72 dòng, OVERRIDE (chứa các giá trị khác mặc định + metrics bật)
-        ├── iotdb-system.properties.template    # 95KB, TẤT CẢ tham số mặc định (tham chiếu)
-        ├── datanode-env.sh                     # MEMORY_SIZE, IOTDB_ALLOW_HEAP_DUMP…
-        ├── confignode-env.sh
-        ├── iotdb-common.sh
-        ├── iotdb-cluster.properties
-        ├── logback-datanode.xml                # config log level, file appender
-        ├── logback-confignode.xml
-        ├── logback-backup.xml
-        ├── logback-tool.xml
-        ├── jmx.access
-        └── jmx.password
+├── .gitignore                      # bỏ iotdb/data, iotdb/logs, *.pyc, venv, *.parquet, *.csv lớn…
+├── docker-compose.yml              # 3 services: iotdb 2.0.11 + prometheus v2.54.1 + grafana 11.2.0
+├── README.md                       # tài liệu này (Audit pass, 7 sections verified)
+├── iotdb/
+│   └── conf/                       # commit vào Git, mount read-only (:ro) cho container
+│       ├── iotdb-system.properties             # OVERRIDE 72 dòng (metrics PROMETHEUS port 9091/9092 bật)
+│       ├── iotdb-system.properties.template    # 95KB, TẤT CẢ tham số mặc định (tham chiếu group)
+│       ├── datanode-env.sh                     # MEMORY_SIZE, IOTDB_ALLOW_HEAP_DUMP…
+│       ├── confignode-env.sh
+│       ├── iotdb-common.sh
+│       ├── iotdb-cluster.properties
+│       ├── logback-datanode.xml                # config log level, file appender (nhóm D đọc)
+│       ├── logback-confignode.xml
+│       ├── logback-backup.xml
+│       ├── logback-tool.xml
+│       ├── jmx.access
+│       └── jmx.password
+└── monitoring/                   # commit vào Git (Section 9 — A3 monitoring đã dựng xong)
+    ├── prometheus/
+    │   └── prometheus.yml        # 3 job mặc định + 1 opt-in highfreq (commented)
+    └── grafana/
+        └── provisioning/
+            └── datasources/
+                └── datasource.yml # Auto-provision Prometheus datasource uid=prometheus-iotdb (default=true, proxy)
 ```
 
 ---
@@ -311,13 +408,13 @@ C:\Users\HELLO\Desktop\Đồ án\
 
 ## 13. Hướng bắt đầu tích hợp cho từng nhóm
 
-| Nhóm | Hành động đầu tiên | Lưu ý |
+| Nhóm | Hành động đầu tiên | Lưu ý cốt lõi từ Audit |
 |---|---|---|
-| **B1 (Bộ sinh tải lõi)** | Kết nối Session API 127.0.0.1:6667 root/root. Tạo database `root.experiment`, tạo schema theo device × measurement design. | Seed cố định; cần test riêng 0% và 100% OOO cho thành viên 3 viết unit test khớp tỉ lệ thực tế. |
-| **B2 (Mở rộng load gen)** | Chạy unit test khớp với tỉ lệ OOO B1 trước khi thêm delay/concurrency. | Tuân thủ thiết kế interface chung của B1. |
-| **C+D (Giám sát & Thu thập)** | Thêm service Prometheus + Grafana vào `docker-compose.yml`. Cấu hình scrape 2 target. Đọc log file từ named vol `iotdb-logs` hoặc `docker logs iotdb > run001.log` | Dashboard metric DN cột trên metrics port 9092. Đặc biệt vẽ `unseq_file_count` theo thời gian (core metric đề tài). |
-| **E (Runner & ma trận)** | Viết script Python `run_experiment.py` tự hóa (1) `docker exec -i iotdb drop DB` / (2) chạy load gen / (3) stop load gen / (4) chờ compaction ổn định (đợi compaction_running=0) / (5) collect metrics + logs → lưu parquet theo schema thống nhất. | Luôn reset DB giữa các run (hoặc xóa volume `-v` rồi tạo lại nếu muốn sạch hoàn toàn, nhưng phải chờ IoTDB khởi động lại ~40s). |
-| **F (Phân tích)** | Đợi nhóm E export parquet schema thống nhất. Chuẩn bị notebook template: load parquet → group by (ooo_ratio, batch_size, threads) → t-interval 95% → line/heatmap/box plots. | Đọc metric compaction count + flush duration làm biến trung gian giải thích vì sao cost tăng theo OOO%. |
+| **B1 (Bộ sinh tải lõi OOO ratio)** | Kết nối Session API `127.0.0.1:6667` user=`root` pw=`root`. Tạo DB convention `root.exp_r<OOO>_b<batch>_t<thread>`, schema theo device × measurement design. | Seed cố định N lần lặp; PromQL verify metric `compaction_task_count{name="cross"}` > 0 khi OOO>50% để biết load gen kích hoạt cross-space compaction đúng. |
+| **B2 (Load gen latency + concurrency)** | Chạy unit test khớp tỉ lệ OOO của B1 trước khi thêm delay/concurrency params. | Tuân thủ interface của B1; đo overhead của chính load gen framework trên test máy trống (Idle baseline) trước khi chạy ma trận. |
+| **C+D (Giám sát & Thu thập log)** | Prometheus + Grafana ĐÃ SẴN (Section9). Mở Grafana `http://127.0.0.1:3000` admin/admin → Build dashboard dùng **7 PromQL ĐÃ VERIFY ở Section 6.5 bảng**. Nhóm D extract log: `docker cp iotdb:/iotdb/logs ./iotdb/logs_run_NNN/` | ⚠ Xem Section 6.5: **KHÔNG dùng `rate()` cho gauge thread_pool / compaction_task_count**; metric cũ `wal_flush_time_cost_summary` KHÔNG TỒN TẠI → thay bằng `wal_cost_seconds`. Regex extract log cho pattern: `cross_space_compaction`, `flush_memtable`, `Rejecting` (Section 10 troubleshooting). |
+| **E (Runner & ma trận thí nghiệm)** | Đầu tiên: **Chạy quy trình Section 9.3 đo overhead monitoring 1 lần duy nhất** và ghi kết quả vào metadata tổng. Sau đó viết script: (0) DROP 2 DB test (Section 8 SQL) / (1) start load gen B1+B2 / (2) chờ end / (3) SLEEP `compaction_schedule_interval`=60s để compaction hoàn thành / (4) export Prom `query_range` step=1s + copy log volume → gộp vào folder structure theo run id. | Khi reset DB giữa các run ưu tiên `DROP DATABASE ...;` thay vì `docker compose down -v` (cách 1 không chờ IoTDB restart 40s). Khi muốn trắng hoàn toàn (lần đầu build baseline) thì mới dùng `-v`. |
+| **F (Phân tích Notebook)** | Chờ nhóm E export data schema thống nhất. Template: load parquet → groupby (OOO, batch, concurrency) → Welch's t-interval / Wilcoxon signed-rank paired test cho N≥5 lặp → vẽ (a) line+band 95% CI (b) boxplot (c) heatmap batch vs OOO. | Biến trung gian giải thích cho báo cáo cuối: dùng `compaction_task_count{name="cross"}` mean và `file_count{tsfileType="unsequence"}` mean làm 2 feature dự đoán chi phí ghi, không chỉ report raw cost. |
 
 ---
 
