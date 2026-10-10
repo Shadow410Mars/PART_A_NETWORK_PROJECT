@@ -1,0 +1,38 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'iotdb-experiment-monitor'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'iotdb-confignode'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['iotdb:9091']
+        labels:
+          node_role: 'ConfigNode'
+          node_id: '0'
+
+  - job_name: 'iotdb-datanode'
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['iotdb:9092']
+        labels:
+          node_role: 'DataNode'
+          node_id: '1'
+
+  - job_name: 'iotdb-datanode-highfreq'
+    metrics_path: '/metrics'
+    scrape_interval: 1s
+    scrape_timeout: 900ms
+    static_configs:
+      - targets: ['iotdb:9092']
+        labels:
+          node_role: 'DataNode'
+          node_id: '1'
+          frequency: 'highfreq_1s'

@@ -1,0 +1,40 @@
+# IoTDB runtime data
+iotdb/data/
+iotdb/logs/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python (cho nhóm B, E, F)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.env
+.venv/
+venv/
+env/
+build/
+dist/
+*.parquet
+*.csv
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs chung
+*.log
+logs/
