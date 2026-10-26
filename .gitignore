@@ -31,6 +31,7 @@ build/
 dist/
 *.parquet
 *.csv
+/load_generator/output/
 
 # Jupyter
 .ipynb_checkpoints/

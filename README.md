@@ -89,7 +89,33 @@ s.close()
 
 ---
 
-## 6. Giải thích các cơ chế cốt lõi
+## 6. Phần B — Bộ sinh tải và benchmark ghi IoTDB
+
+Code ở `load_generator/` sinh workload có thể tái lập theo seed và ghi dữ liệu
+vào IoTDB. Có thể điều chỉnh tỷ lệ OOO, độ trễ trung bình/phân bố, batch size
+và số luồng đồng thời. Mỗi lần chạy đọc lại dữ liệu để xác minh số bản ghi và
+giá trị đã ghi.
+
+Cài thư viện và chạy kiểm thử:
+
+```powershell
+py -3.13 -m pip install -r load_generator\requirements.txt
+py -3.13 -m unittest -v load_generator.test_workload load_generator.test_benchmark
+```
+
+Sau khi stack ở phần A đã khởi động:
+
+```powershell
+py -3.13 -m load_generator.benchmark --records 1000 --batch-size 100 --concurrency 2 --ooo-ratio 0.3 --mean-lateness-ms 5000 --distribution exponential --seed 42
+```
+
+Tham số kết nối có thể đặt qua `IOTDB_HOST`, `IOTDB_PORT`,
+`IOTDB_USERNAME`, `IOTDB_PASSWORD`. Hướng dẫn chi tiết, định nghĩa OOO và
+lateness, cùng định dạng output nằm trong [`load_generator/README.md`](load_generator/README.md).
+
+---
+
+## 7. Giải thích các cơ chế cốt lõi
 
 Lưu ý 2 cơ chế sau của IoTDB để không hiểu nhầm các chỉ số khi test:
 
@@ -98,7 +124,7 @@ Lưu ý 2 cơ chế sau của IoTDB để không hiểu nhầm các chỉ số k
 
 ---
 
-## 7. Quy ước chung cho nhóm
+## 8. Quy ước chung cho nhóm
 
 * **Quản lý source code:** Các bạn tạo branch riêng (VD: `feature/ten-chuc-nang`) từ nhánh `main` để làm việc. Khi xong thì tạo Pull Request.
 * **Không commit các file sau:** Dữ liệu sinh ra quá lớn (`.parquet`, `.csv`), dữ liệu trong volume (`iotdb/data`, `iotdb/logs`), secrets, thư mục ảo (`venv`).
